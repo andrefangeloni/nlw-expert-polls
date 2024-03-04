@@ -4,6 +4,7 @@ import { FastifyInstance } from 'fastify'
 
 import { redis } from '../../lib/redis'
 import { prisma } from '../../lib/prisma'
+import { voting } from '../../utils/voting-pub-sub'
 
 export const voteOnPoll = async (app: FastifyInstance) => {
   app.post('/polls/:pollId/votes', async (req, reply) => {
@@ -37,7 +38,16 @@ export const voteOnPoll = async (app: FastifyInstance) => {
           },
         })
 
-        await redis.zincrby(pollId, -1, userAlreadyVoted.pollOptionId)
+        const votes = await redis.zincrby(
+          pollId,
+          -1,
+          userAlreadyVoted.pollOptionId,
+        )
+
+        voting.publish(pollId, {
+          pollOptionId: userAlreadyVoted.pollOptionId,
+          votes: Number(votes),
+        })
       } else if (userAlreadyVoted) {
         return reply.status(400).send({ message: 'user-already-voted' })
       }
@@ -62,7 +72,12 @@ export const voteOnPoll = async (app: FastifyInstance) => {
       },
     })
 
-    await redis.zincrby(pollId, 1, pollOptionId)
+    const votes = await redis.zincrby(pollId, 1, pollOptionId)
+
+    voting.publish(pollId, {
+      pollOptionId,
+      votes: Number(votes),
+    })
 
     return reply.status(201).send()
   })
